@@ -1,0 +1,572 @@
+<!doctype html>
+<html lang="de">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Party-Quiz</title>
+    <style>
+        :root{
+            --bg1:#0f172a; --bg2:#1e293b; --fg:#e5e7eb;
+            --muted:#cbd5e1; --key:#38bdf8; --ok:#10b981;
+        }
+        *{box-sizing:border-box}
+        html,body{height:100%;margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Cantarell,Noto Sans,"Helvetica Neue",Arial}
+        body{
+            color:var(--fg);
+            background: radial-gradient(1200px 600px at 20% 0%, rgba(56,189,248,.12), transparent 60%),
+            radial-gradient(1000px 500px at 80% 20%, rgba(167,139,250,.10), transparent 60%),
+            linear-gradient(180deg, var(--bg1), var(--bg2));
+            display:flex;align-items:center;justify-content:center;overflow:hidden;
+        }
+        .wrap{width:min(1200px,95vw);height:min(95vh,900px);display:grid;grid-template-rows:1fr;gap:20px}
+        .card{
+            border-radius:28px;
+            background: linear-gradient(180deg, rgba(11,18,34,.95), rgba(11,18,34,.85));
+            border:1px solid rgba(255,255,255,.06);
+            box-shadow:0 30px 80px rgba(0,0,0,.45), inset 0 1px 0 rgba(255,255,255,.04);
+            padding:22px 26px;
+            display:flex;flex-direction:column;gap:18px;
+        }
+        .qhead{font-size:clamp(22px,3.5vw,36px);font-weight:800;letter-spacing:.2px;opacity:.95}
+
+        /* Normalzustand: Bild nicht sichtbar */
+        .qimg{
+            display:none;
+            width:100%;
+            max-height:50vh;
+            aspect-ratio:16/9;
+            object-fit:contain;
+            border-radius:12px;
+            border:3px solid #fff;           /* schmaler Rahmen direkt am Bild */
+            box-shadow:0 4px 12px rgba(0,0,0,0.25);
+        }
+
+        /* Intro mit Bild: fullscreen Bild, Titel ausblenden */
+        body.intro-active .qhead{ display:none; }
+        body.intro-active .qimg{
+            display:block;
+            position:fixed;
+            inset:0;
+            width:100vw;
+            height:100vh;
+            max-height:100vh;
+            object-fit:contain;              /* vollständig sichtbar, ohne Verzerrung */
+            margin:0;
+            border-radius:0;                 /* optional: für echten Vollbildlook können wir abrunden aus */
+            border:3px solid #fff;           /* dünner Rahmen direkt am Bild */
+            box-shadow:none;                 /* im Vollbild kein externer Schatten nötig */
+            background:#000;                 /* falls Bild kleiner ist, schwarzer Hintergrund */
+            z-index:10;
+        }
+
+        .question{ font-size:clamp(30px,4.8vw,58px); line-height:1.12; font-weight:800; min-height:2.2em; }
+        .options{display:grid;grid-template-columns:1fr;gap:14px}
+        .opt{
+            display:flex;align-items:center;gap:20px;
+            padding:16px 18px;border-radius:18px;min-height:90px;
+            background:rgba(2,6,23,.6);border:1px solid rgba(148,163,184,.18);
+            backdrop-filter: blur(4px);
+            transition: transform .12s ease, border-color .12s ease, background .12s ease;
+        }
+        .opt.hidden{visibility:hidden}
+        .opt .key{
+            flex:0 0 auto;display:inline-flex;align-items:center;justify-content:center;
+            font-weight:900;letter-spacing:.5px;
+            width:80px;height:80px;border-radius:20px;
+            border:3px solid rgba(255,255,255,.25);
+            background:linear-gradient(180deg, var(--key), rgba(56,189,248,.7));
+            font-size:clamp(22px,3vw,32px);color:#0b1222;
+            box-shadow: inset 0 1px 0 rgba(255,255,255,.06);
+        }
+        .opt .text{font-size:clamp(22px,3vw,36px);line-height:1.25;flex:1}
+        .opt .mark{margin-left:auto;font-size:clamp(26px,3.2vw,40px);opacity:0;transition:opacity .18s ease}
+        .opt.correct{ border-color:rgba(16,185,129,.85); background:linear-gradient(180deg, rgba(6,78,59,.45), rgba(2,44,34,.45)); }
+        .opt.correct .mark{ opacity:1 }
+
+        /* ==== NEU: Frage-Nummer-Badge oben links über dem Vollbild-Bild ==== */
+        .qbadge{
+            position:fixed; top:16px; left:16px;
+            display:none;                          /* standardmäßig aus */
+            width:64px; height:64px; border-radius:16px;
+            background:rgba(2,6,23,.70);
+            border:2px solid rgba(255,255,255,.65);
+            backdrop-filter:blur(6px);
+            box-shadow:0 8px 24px rgba(0,0,0,.35), inset 0 1px 0 rgba(255,255,255,.08);
+            z-index:20;                            /* über dem Bild (qimg hat 10) */
+            color:#fff; font-weight:900; font-size:28px;
+            display:flex; align-items:center; justify-content:center;
+            letter-spacing:.5px;
+        }
+        /* Nur während der Intro-/Bildseite einblenden */
+        body.intro-active .qbadge{ display:flex; }
+        /* ================================================================ */
+    </style>
+</head>
+<body>
+<div class="wrap" id="app">
+    <main class="card">
+        <!-- NEU: Badge für die aktuelle Frage -->
+        <div class="qbadge" id="qbadge" aria-label="Fragenummer">1</div>
+
+        <img class="qimg" id="qimg" alt="Frage Bild" src="" />
+        <div class="question" id="question"></div>
+
+        <div class="options">
+            <div class="opt hidden" id="optA"><div class="key">A</div><div class="text"></div><div class="mark">✓</div></div>
+            <div class="opt hidden" id="optB"><div class="key">B</div><div class="text"></div><div class="mark">✓</div></div>
+            <div class="opt hidden" id="optC"><div class="key">C</div><div class="text"></div><div class="mark">✓</div></div>
+        </div>
+    </main>
+</div>
+
+<!-- Eingebettete Fragen -->
+<script type="application/json" id="quiz-data">
+    {
+        "title": "Sonja-Quiz",
+        "questions": [
+            {
+                "q": "Vor wie vielen Monaten kam Sonja zur Welt?",
+                "a": [
+                    "Vor 500 Monaten",
+                    "Vor 600 Monaten",
+                    "Vor 660 Monaten"
+                ],
+                "img": "neuer Erdenbürger.jpg"
+            },
+            {
+                "q": "Wie lautet Sonjas Geburtsname?",
+                "a": [
+                    "Gurke",
+                    "Gährke",
+                    "Gehrke"
+                ],
+                "img": "Geburtsname.jpg"
+            },
+            {
+                "q": "Wie hießen Sonjas Eltern?",
+                "a": [
+                    "Bernhard und Bianca",
+                    "Heino und Hannelore",
+                    "Harald und Erika"
+                ],
+                "img": "Familie.jpg"
+            },
+            {
+                "q": "Wo wurde Sonja geboren?",
+                "a": [
+                    "Autobahn-Rastätte (A23/Kaaksburg)",
+                    "Heide (Dithmarschen)",
+                    "Elmshorn (Kreis Pinneberg)"
+                ],
+                "img": "Geburtsort.jpg"
+            },
+            {
+                "q": "Was wollte Sonja als kleines Kind später gerne mal werden?",
+                "a": [
+                    "„Eisverkaufsfrau“",
+                    "„Ballettfrau“",
+                    "„Klosettfrau“"
+                ],
+                "img": "Berufswunsch.jpg"
+            },
+            {
+                "q": "Welches Musik-Instrument hat Sonja mal gelernt?",
+                "a": [
+                    "Triangel",
+                    "Blockflöte",
+                    "Mundharmonika"
+                ],
+                "img": "Trommel.jpg"
+            },
+            {
+                "q": "Welches Hobby hatte Sonja nicht in ihrer Jugend?",
+                "a": [
+                    "Reiten",
+                    "Handball",
+                    "Stricken"
+                ],
+                "img": "Hobbys.jpg"
+            },
+            {
+                "q": "Welchen Beruf hat Sonja erlernt?",
+                "a": [
+                    "Rechtsanwalts- und Notargehilfin",
+                    "Veranstaltungskaufrau",
+                    "Landwirtin"
+                ],
+                "img": "Beruf.jpg"
+            },
+            {
+                "q": "Wo haben sich Sonja und Torsten kennengelernt?",
+                "a": [
+                    "Im Wartezimmer beim Urologen",
+                    "Im Zug, als Sonja von einem Date zurückkam",
+                    "Im Swingerclub „Pleasure Dom“"
+                ],
+                "img": "kennengelernt.jpg"
+            },
+            {
+                "q": "In welcher Stadt haben Sonja und Torsten zusammen gewohnt?",
+                "a": [
+                    "Wismar",
+                    "München",
+                    "Lübeck"
+                ],
+                "img": "zusammen gewohnt.jpg"
+            },
+            {
+                "q": "Wo hat Sonja einen Heiratsantrag von Torsten bekommen?",
+                "a": [
+                    "Auf dem Eifelturm in Paris",
+                    "Auf der Spanischen Treppe in Rom",
+                    "In der Warteschlange bei IKEA-Brinkum"
+                ],
+                "img": "Heiratsantrag.jpg"
+            },
+            {
+                "q": "Wann und wo haben Sonja und Torsten geheiratet?",
+                "a": [
+                    "Am 06.06.2006 in Las Vegas",
+                    "Am 05.05.2005 auf Sylt",
+                    "Am 15.08.2003 im Bremer Rathaus"
+                ],
+                "img": "Heiratsort.jpg"
+            },
+            {
+                "q": "Von welchem Mann träumt Sonja am häufigsten?",
+                "a": [
+                    "Ryan Gosling",
+                    "Bruce Willis „die geile Sau“",
+                    "Torsten „die noch geilere …“"
+                ],
+                "img": "Traummann.jpg"
+            },
+            {
+                "q": "In welcher Lebensgefahr schwebte Sonja noch nicht?",
+                "a": [
+                    "Vom Schiff überfahren",
+                    "Vom Heuboden gefallen",
+                    "Hai-Attacke"
+                ],
+                "img": "Lebensgefahr.jpg"
+            },
+            {
+                "q": "In welchen Jahren wurden Anna und Tim geboren?",
+                "a": [
+                    "2008 und 2011",
+                    "2007 und 2011",
+                    "2008 und 2012"
+                ],
+                "img": "Kinder.jpg"
+            },
+            {
+                "q": "Welches neue Hobby entdeckte Sonja für sich als junge Mutter?",
+                "a": [
+                    "Klangschalen-Meditation",
+                    "Nähen",
+                    "Kickboxen"
+                ],
+                "img": "Hobby.jpg"
+            },
+            {
+                "q": "Wo war Sonja noch nie?",
+                "a": [
+                    "Island",
+                    "Neuseeland",
+                    "Madeira"
+                ],
+                "img": "Urlaubsorte.jpg"
+            },
+            {
+                "q": "Was spielt Sonja am liebsten auf ihrem Handy?",
+                "a": [
+                    "Tetris",
+                    "Brawl Stars",
+                    "Pokémon Go"
+                ],
+                "img": "Handy.jpg"
+            },
+            {
+                "q": "Wer oder was ist Sonjas Endgegner?",
+                "a": [
+                    "Ameisen",
+                    "Klee",
+                    "Maulwurf"
+                ],
+                "img": "Garten.jpg"
+            },
+            {
+                "q": "Wie heißt Sonjas Hund?",
+                "a": [
+                    "Zeus",
+                    "Dorian",
+                    "Apollo"
+                ],
+                "img": "Hund.jpg"
+            },
+            {
+                "q": "Bei welcher Sportart schaut Sonja regelmäßig live zu?",
+                "a": [
+                    "Fußball",
+                    "Basketball",
+                    "Handball"
+                ],
+                "img": "Sport.jpg"
+            },
+            {
+                "q": "Welche Person ruft am häufigsten lautstark „SONJAAA“?",
+                "a": [
+                    "Chef",
+                    "Personal Trainer",
+                    "Ehemann"
+                ],
+                "img": "Ruf.jpg"
+            },
+            {
+                "q": "Welche Literatur begeistert Sonja?",
+                "a": [
+                    "Herr der Ringe",
+                    "Achtsam Morden",
+                    "Die Blechtrommel"
+                ],
+                "img": "Buch.jpg"
+            },
+            {
+                "q": "Bei welcher Musik singt Sonja mit?",
+                "a": [
+                    "Stairway to Heaven (Led Zeppelin)",
+                    "Schlechtes Vorbild (Sido)",
+                    "Fiesta Mexicaner (Rex Gildo)"
+                ],
+                "img": "Gesang.jpg"
+            },
+            {
+                "q": "Wie lange dauert es in der Regel, bis Sonja vor dem Fernseher einschläft?",
+                "a": [
+                    "Weniger als 5 Minuten",
+                    "Ungefähr 10 Minuten",
+                    "Mehr als 15 Minuten"
+                ],
+                "img": "Schlaf.jpg"
+            },
+            {
+                "q": "Welches Brettspiel mag Sonja am liebsten?",
+                "a": [
+                    "Mensch-Ärgere-Dich-Nicht",
+                    "Trivial Pursuit",
+                    "Siedler von Catan"
+                ],
+                "img": "Spiel.jpg"
+            },
+            {
+                "q": "Was trinkt Sonja gerne nach dem Aufstehen?",
+                "a": [
+                    "Tee",
+                    "Kaffee",
+                    "Wasser"
+                ],
+                "img": "Morgengetränk.jpg"
+            },
+            {
+                "q": "Was ist Sonjas Lieblingssüßigkeit?",
+                "a": [
+                    "Paprika-Chips",
+                    "Nuss-Schokolade",
+                    "Oreo-Kekse"
+                ],
+                "img": "Süßigkeit.jpg"
+            },
+            {
+                "q": "Welchen Film würde Sonja am liebsten schauen?",
+                "a": [
+                    "Es",
+                    "Titanic",
+                    "Spiel mir das Lied vom Tod"
+                ],
+                "img": "Lieblingsfilm.jpg"
+            },
+            {
+                "q": "Welches Fest mag Sonja am liebsten?",
+                "a": [
+                    "Weihnachten",
+                    "Ostern",
+                    "Silvester"
+                ],
+                "img": "Fest.jpg"
+            },
+            {
+                "q": "Das perfekte Geschenk für Sonja ist…",
+                "a": [
+                    "Fahrradzubehör",
+                    "Wellness-Wochenende",
+                    "IKEA-Gutschein"
+                ],
+                "img": "Geschenk.jpg"
+            },
+            {
+                "q": "Was mag Sonja lieber?",
+                "a": [
+                    "Pfirsich",
+                    "Apfel",
+                    "Banane"
+                ],
+                "img": "Obst.jpg"
+            },
+            {
+                "q": "Was ist Sonjas Lieblingssport im Sommer?",
+                "a": [
+                    "Schwimmen",
+                    "Radfahren",
+                    "Wandern"
+                ],
+                "img": "Sommer.jpg"
+            },
+            {
+                "q": "Was macht Sonja zum Entspannen?",
+                "a": [
+                    "Yoga",
+                    "Lesen",
+                    "Fernsehen"
+                ],
+                "img": "Entspannung.jpg"
+            },
+            {
+                "q": "Wie lautet Sonjas Festnetz-Telefonnummer",
+                "a": [
+                    "0421-16981341",
+                    "0421-26981341",
+                    "0421-36981341"
+                ],
+                "img": "Telefonnummer.jpg"
+            },
+            {
+                "q": "Was bestellt Sonja beim Italiener am häufigsten?",
+                "a": [
+                    "Salat",
+                    "Pasta",
+                    "Pizza"
+                ],
+                "img": "italiener.jpg"
+            },
+            {
+                "q": "Welche Hausarbeit hasst Sonja am meisten?",
+                "a": [
+                    "Bügeln",
+                    "Fensterputzen",
+                    "Staubwischen"
+                ],
+                "img": "hausarbeit.jpg"
+            },
+            {
+                "q": "Schätzfragen",
+                "a": [
+                    "Welchen Platz belegte der Vorname 'Sonja' im Jahr 1975 in der Namensrangliste der neugeborenen Mädchen?",
+                    "Wie hoch ist das Durchschnittsalter aller Sonjas in Deutschland?",
+                    " "
+                ],
+                "img": "schaetzfragen.png"
+            }
+        ]
+
+    }
+</script>
+
+<script>
+    const $ = (s)=>document.querySelector(s);
+    let state = { data:null, idx:0, stage:0 };
+    const pad2 = (n)=> String(n).padStart(2,'0');
+    function clamp(v,min,max){return Math.max(min,Math.min(max,v));}
+
+    (function initFromEmbeddedJSON(){
+        const raw = document.getElementById('quiz-data')?.textContent.trim();
+        if(!raw){ console.error('Keine eingebetteten Daten gefunden.'); return; }
+        try{
+            const data = JSON.parse(raw);
+            initQuiz(data);
+        }catch(err){ console.error('JSON-Fehler:', err); }
+    })();
+
+    function initQuiz(data){
+        state.data = data; state.idx = 0; state.stage = 0;
+        document.title = data.title || 'Party-Quiz';
+        render();
+    }
+
+    function showOptionalIntroImage(){
+        const img = $('#qimg');
+        const body = document.body;
+        const q = state.data.questions[state.idx];
+
+        if (state.stage !== 0) {
+            img.style.display = 'none';
+            body.classList.remove('intro-active');
+            return;
+        }
+
+        // Bildname aus der Frage
+        const filename = q.img;
+        if (!filename) {
+            img.style.display = 'none';
+            body.classList.remove('intro-active');
+            return;
+        }
+
+        img.onload = ()=>{
+            if (state.stage === 0) {
+                body.classList.add('intro-active');
+                img.style.display = 'block';
+            }
+        };
+        img.onerror = ()=>{
+            body.classList.remove('intro-active');
+            img.style.display = 'none';
+        };
+        img.src = filename;
+    }
+
+    function render(){
+        if(!state.data){ return; }
+        const {questions} = state.data;
+        const q = questions[state.idx];
+
+        // NEU: Badge-Nummer aktualisieren
+        document.getElementById('qbadge').textContent = state.idx + 1;
+
+        showOptionalIntroImage();
+
+        const qbox = $('#question');
+        qbox.textContent = state.stage>0 ? q.q : '';
+
+        const optEls = [$('#optA'), $('#optB'), $('#optC')];
+        const vis = [state.stage>=2, state.stage>=3, state.stage>=4];
+        optEls.forEach((el,i)=>{
+            el.querySelector('.text').textContent = q.a?.[i] ?? '';
+            el.classList.toggle('hidden', !vis[i]);
+            el.classList.toggle('correct', q.correct === i);
+        });
+    }
+
+    function setCorrect(i){ const q = state.data.questions[state.idx]; q.correct = i; render(); }
+    function nextStage(){ state.stage = clamp(state.stage+1, 0, 4); render(); }
+    function prevQuestion(){ const n = state.data.questions.length; state.idx = (state.idx - 1 + n) % n; state.stage = 0; render(); }
+    function nextQuestion(){ const n = state.data.questions.length; state.idx = (state.idx + 1) % n; state.stage = 0; render(); }
+
+    window.addEventListener('keydown', (e)=>{
+        const k = e.key.toLowerCase();
+        if (k === ' '){ e.preventDefault(); nextStage(); return; }
+        if (!state.data) return;
+        if (k === 'arrowright'){ nextQuestion(); return; }
+        if (k === 'arrowleft'){ prevQuestion(); return; }
+        if (k === 'a'){ setCorrect(0); return; }
+        if (k === 'b'){ setCorrect(1); return; }
+        if (k === 'c'){ setCorrect(2); return; }
+    }, {passive:false});
+
+    document.body.addEventListener('click',(e)=>{
+        if (!state.data) return;
+        const x = e.clientX;
+        if (x < window.innerWidth*0.4) prevQuestion(); else nextQuestion();
+    });
+</script>
+</body>
+</html>
